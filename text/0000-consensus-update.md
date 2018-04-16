@@ -144,7 +144,7 @@ consensus engine.
 # Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
 
-This is the technical portion of the RFC. Explain the design in sufficient
+<!-- This is the technical portion of the RFC. Explain the design in sufficient
 detail that:
 
 - Its interaction with other features is clear.
@@ -152,7 +152,91 @@ detail that:
 - Corner cases are dissected by example.
 
 The section should return to the examples given in the previous section, and
-explain more fully how the detailed proposal makes those examples work.
+explain more fully how the detailed proposal makes those examples work. -->
+
+## Chain Controller
+
+<!-- TODO: Add reference counting details -->
+In more detail, the life of the chain controller should be roughly:
+
+1. While there are blocks to receive from the network:
+    1. Validate the consensus transactions
+    2. If the consensus transactions are valid, notify the consensus engine of
+       the new block
+2. While there is a standing directive to checks a block, B, for every
+   predecessor of B not already checked and B, validate the block:
+    1. If the block is valid, notify the consensus engine that
+       the block can be committed.
+    2. If the block is invalid, notify the consensus engine that the block
+       and all of its descendants are invalid. Drop it and any of its
+       descendants.
+3. While there is a standing directive to commit a block, B, for every
+   predecessor of B not already committed and B, commit the block.
+4. While there are directives to fail blocks, purge the block and all of its
+   descendants.
+5. While there is nothing else to do, for every block based on a block that
+   hasn't already been validated, validate the block.
+    1. If the block is valid, notify the consensus engine that the block could
+       be committed.
+    2. If the block is invalid, notify the consensus engine that the block and
+       all of its descendants are invalid. Drop the block and any of its
+       descendants.
+
+The public chain controller interface should be roughly:
+
+    pub trait ChainController {
+      // Extend a chain with the given blocks
+      fn extend(blocks: Vec<Block>) Result;
+
+      // Get the blocks with the given ids
+      fn get(block_ids: Vec<String>) -> Result<Vec<Block>>;
+
+      // Check whether committing the blocks would succeed or not. Note that
+      // Ok() does not mean that the blocks would succeed. You must
+      // `subscribe()` to notifications to find out whether they would succeed
+      // or fail.
+      fn check(blocks: Vec<String>>) -> Result;
+
+      // Attempt to commit the given block. If it fails and `or` was passed,
+      // try to commit one of the blocks in `or`. Note that Ok() does not mean
+      // that the block has been committed. You must `subscribe()` to
+      // notifications to find out when it is committed.
+      fn commit(block_id: String, or: Option<Vec<String>>) -> Result;
+
+      // Ignore this block, but don't fail it. The block is no longer guaranteed
+      // to be present and may be purged.
+      fn ignore(block_id: String) -> Result;
+
+      // Fail the given block and purge it
+      fn fail(block_id: String) -> Result;
+
+      // Subscribe to notifications about block updates (this could also use the
+      // observer pattern)
+      fn subscribe() -> Channel<BlockUpdate>;
+    }
+
+    pub enum BlockUpdate {
+      BlockNew,
+      BlockValid,
+      BlockInvalid,
+      BlockCommit,
+    }
+
+The public block publisher interface should be roughly:
+
+    pub trait BlockPublisher {
+      // Add the batches if they aren't already present.
+      fn add_batches(batches: Vec<Batch>);
+
+      // Start building a new block on top of the given block
+      fn initialize(previous_block_id: String) -> Result;
+
+      // Finish building the block and publish it
+      fn finalize(consensus_data: Vec<u8>) -> Result;
+
+      // Stop building the block and drop it
+      fn cancel() -> Result;
+    }
 
 # Drawbacks
 [drawbacks]: #drawbacks
